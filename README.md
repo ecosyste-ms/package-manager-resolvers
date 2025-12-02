@@ -2,6 +2,8 @@
 
 A reference for dependency resolution algorithms and strategies across different package managers.
 
+Background: [Package manager](https://en.wikipedia.org/wiki/Package_manager) and [Dependency hell](https://en.wikipedia.org/wiki/Dependency_hell) (Wikipedia). For academic treatment, see [Dependency Solving Is Still Hard, but We Are Getting Better at It](https://arxiv.org/abs/2011.07851) (Abate et al., 2020).
+
 ## Algorithm Categories
 
 Package managers generally fall into a few algorithmic families.
@@ -12,7 +14,7 @@ Language package registries rarely remove old versions or packages. System packa
 
 | Algorithm Family | Description | Package Managers |
 |------------------|-------------|------------------|
-| **SAT Solving** | Translates dependencies to boolean satisfiability | Composer, DNF/Zypper/Conda (libsolv) |
+| **SAT Solving** | Translates dependencies to boolean satisfiability | Composer, DNF/Zypper/Conda (libsolv), Eclipse P2 (Sat4j), opam (via CUDF) |
 | **ASP** | Answer Set Programming for optimization | Spack |
 | **PubGrub** | Conflict-driven clause learning with good error messages | Dart pub, Poetry, uv, SwiftPM |
 | **Molinillo** | Backtracking with forward checking | Bundler, CocoaPods, RubyGems |
@@ -21,6 +23,7 @@ Language package registries rarely remove old versions or packages. System packa
 | **Deduplication with nesting** | Deduplicate where possible, nest on conflict | npm, Yarn, pnpm, Bun |
 | **Version Mediation** | Pick based on graph position or declaration order | Maven, Gradle, NuGet |
 | **Scoring/Priority** | Assigns scores to packages, resolves by priority | APT/aptitude |
+| **Ad-hoc** | Custom graph traversal without formal solver | cpanm |
 | **Bundled** | Dependencies included at build time, no runtime resolution | Snap |
 
 ---
@@ -294,24 +297,35 @@ Cargo uses a backtracking resolver that tries the highest compatible version fir
 
 ## Perl
 
-### cpanm / Carton
+### cpanm / CPAN.pm
 
-cpanm installs the latest version of each dependency. Carton adds lockfile support on top of cpanm.
+cpanm and CPAN.pm use ad-hoc dependency resolution that is neither correct nor complete according to academic analysis.
 
-**Algorithm**: Latest version
+**Algorithm**: Ad-hoc depth-first traversal
 
 **How it works**:
-- Installs latest version satisfying constraints
-- Single version of each module
-- Carton's `cpanfile.snapshot` locks versions for reproducibility
+- Fetches dependency metadata from META.json/META.yml in each distribution
+- Traverses dependencies depth-first, installing each before its parent
+- Version constraints support operators (`>=`, `<=`, `>`, `<`, `==`, `!=`) and can be combined with commas
+- Single version of each module system-wide (first found in `@INC` wins)
+- No backtracking: if a version is installed that later causes a conflict, resolution fails
+- `--scandeps` option outputs the dependency tree without installing
+
+**Versioning**: Free-form strings rather than semantic versioning. Version comparison uses Perl's version.pm rules.
 
 **Trade-offs**:
-- **Simple**: No complex version selection
-- **Carton for reproducibility**: Snapshot file locks exact versions
+- **Not complete**: May fail to find a solution even when one exists
+- **Not correct**: May propose solutions that violate constraints
+- **No conflict resolution**: The `conflicts` relationship exists in the spec but is rarely used and discouraged
+- **Simple and fast**: Lack of backtracking means resolution is quick when it works
+
+**Carton** adds lockfile support (`cpanfile.snapshot`) on top of cpanm for reproducible installs, but does not change the underlying resolution algorithm.
 
 **References**:
-- [Carton](https://metacpan.org/pod/Carton)
 - [cpanm](https://metacpan.org/pod/App::cpanminus)
+- [Carton](https://metacpan.org/pod/Carton)
+- [CPAN::Meta::Spec](https://perldoc.perl.org/CPAN::Meta::Spec) (dependency specification)
+- [Dependency Solving Is Still Hard (2020)](https://arxiv.org/abs/2011.07851) - academic survey classifying CPAN as ad-hoc, incomplete, and incorrect
 
 ---
 
@@ -549,6 +563,40 @@ Cabal uses a modular solver with configurable backtracking.
 
 ---
 
+## OCaml
+
+### opam
+
+opam is notable for being one of the few package managers to fully embrace external CUDF solvers, as advocated by the Mancoosi research project.
+
+**Algorithm**: External CUDF solvers (mccs built-in, aspcud, packup, or custom)
+
+**How it works**:
+- Translates the dependency problem to CUDF (Common Upgradeability Description Format)
+- Invokes an external solver (mccs by default since opam 2.0)
+- User can specify optimization criteria (e.g., minimize changes, minimize removals)
+- mccs uses Mixed Integer Linear Programming; aspcud uses Answer Set Programming
+
+**User preferences**: opam allows custom solver criteria. For example:
+```
+opam install merlin --criteria="-changed,-removed"
+```
+This minimizes changes to other installed packages.
+
+**Trade-offs**:
+- **Correct and complete**: Uses formal solvers
+- **User preferences**: Can express optimization criteria
+- **Pluggable**: Can swap solvers without changing opam
+- **Separation of concerns**: Solver is a separate component
+
+**References**:
+- [External solvers](https://opam.ocaml.org/doc/External_solvers.html)
+- [Specifying Solver Preferences](https://opam.ocaml.org/doc/1.1/Specifying_Solver_Preferences.html)
+- [mccs](https://github.com/ocaml-opam/ocaml-mccs)
+- [Dependency Solving Is Still Hard (2020)](https://arxiv.org/abs/2011.07851) - cites opam as the primary example of the "separation of concerns" approach
+
+---
+
 ## Swift/iOS
 
 ### CocoaPods
@@ -783,7 +831,7 @@ Spack is a package manager for HPC that uses Answer Set Programming (ASP) for de
 | Conda/Mamba | SAT (libsolv) | Highest | Yes | No |
 | Bundler | Molinillo | Highest | Yes | No |
 | Cargo | Backtracking | Highest | Yes | Yes (major) |
-| cpanm/Carton | Latest | Highest | Yes (Carton) | No |
+| cpanm/Carton | Ad-hoc (depth-first) | Highest | Yes (Carton) | No |
 | Go | MVS | Lowest | No | No |
 | Maven | Nearest | Nearest | No | No |
 | Gradle | Newest | Highest | Yes | No |
@@ -792,6 +840,7 @@ Spack is a package manager for HPC that uses Answer Set Programming (ASP) for de
 | pub | PubGrub | Highest | Yes | No |
 | Mix/Hex | Latest | Highest | Yes | No |
 | Cabal | Modular | Highest | Yes | No |
+| opam | CUDF (external) | Highest | Yes | No |
 | CocoaPods | Molinillo | Highest | Yes | No |
 | SwiftPM | PubGrub | Highest | Yes | No |
 | APT | Scoring | Highest | No | No |
@@ -855,15 +904,62 @@ This causes problems when:
 
 ---
 
+## Solver Correctness and Completeness
+
+A 2020 academic survey ([Dependency Solving Is Still Hard](https://arxiv.org/abs/2011.07851)) evaluated package managers on two properties:
+
+- **Correct**: Will the solver always propose solutions that respect dependency constraints?
+- **Complete**: Will the solver always find a solution if one exists?
+
+Their findings:
+
+| Package Manager | Solver Type | Correct | Complete | User Preferences |
+|-----------------|-------------|---------|----------|------------------|
+| npm | ad-hoc | ? | ? | No |
+| opam | CUDF (external) | Yes | Yes | Yes |
+| pip | ad-hoc | Yes | Yes | No |
+| NuGet | ad-hoc | Yes | Yes | No |
+| Maven | ad-hoc | Yes | Yes | With plugins |
+| RubyGems | ad-hoc | ? | ? | ? |
+| Cargo | ad-hoc | Yes | Yes | No |
+| CPAN | ad-hoc | No | No | No |
+| Cabal | ? | No | No | No |
+| Debian (apt) | CUDF (external) | Yes | Yes | Yes |
+| RedHat (dnf) | libzypp SAT | Yes | Yes | ? |
+| Eclipse P2 | Sat4j | Yes | Yes | Yes |
+
+The paper notes that SAT-based solvers (libsolv, Sat4j) and CUDF-based external solvers are generally both correct and complete, while ad-hoc implementations vary.
+
+---
+
 ## Complexity Note
 
 General dependency resolution with arbitrary version constraints is NP-hard (reducible to SAT) when you must select exactly one version of each package. However, not all package managers face this complexity:
 
 - **npm/Yarn/pnpm** attempt to deduplicate by finding versions that satisfy multiple dependents, but can nest different versions when conflicts arise. Peer dependencies complicate this since they must be at the same level and cannot be resolved by nesting.
-- **Go's MVS** is polynomial-time because it always picks the minimum version, avoiding the combinatorial explosion of choosing among candidates
-- **SAT-based resolvers** (Composer, libsolv) embrace the complexity and use optimized solvers
-- **Backtracking resolvers** (pip, Cargo) can hit exponential worst cases but use heuristics to perform well in practice
-- **PubGrub** uses conflict-driven clause learning to prune the search space efficiently
+- **Go's MVS** is polynomial-time because it always picks the minimum version, avoiding the combinatorial explosion of choosing among candidates.
+- **SAT-based resolvers** (Composer, libsolv) embrace the complexity and use optimized solvers.
+- **Backtracking resolvers** (pip, Cargo) can hit exponential worst cases but use heuristics to perform well in practice.
+- **PubGrub** uses conflict-driven clause learning to prune the search space efficiently.
+- **Ad-hoc resolvers** (CPAN, older npm) may be incomplete, failing to find solutions that exist.
+
+---
+
+## References
+
+- Abate et al., [Dependency Solving Is Still Hard, but We Are Getting Better at It](https://arxiv.org/abs/2011.07851) (2020) - Census of solver correctness/completeness across package managers
+- Abate et al., [Dependency solving: A separate concern in component evolution management](https://www.sciencedirect.com/science/article/abs/pii/S0164121212000477) (2012) - Modular architecture using external SAT/PBO/MILP solvers
+- Tucker et al., [OPIUM: Optimal Package Install/Uninstall Manager](https://cseweb.ucsd.edu/~lerner/papers/opium.pdf) (2007) - SAT-based solver; found 23.3% of Debian users hit apt-get incompleteness
+- Mancinelli et al., [Managing the Complexity of Large Free and Open Source Package-Based Software Distributions](https://www.researchgate.net/publication/29599445_Managing_the_Complexity_of_Large_Free_and_Open_Source_Package-Based_Software_Distributions) (2006) - Original NP-completeness proof for Debian dependencies
+- Di Cosmo & Vouillon, [On software component co-installability](https://dl.acm.org/doi/10.1145/2025113.2025149) (2011) - Formal framework for compatible component combinations
+- Burrows, [Modelling and Resolving Software Dependencies](https://www.debian.org/doc/manuals/aptitude/ch02s03s01.en.html) (2005) - Aptitude's best-first-search resolver
+- Weizenbaum, [PubGrub: Next-Generation Version Solving](https://nex3.medium.com/pubgrub-2fb6470504f) (2018) - Algorithm used by Dart pub, Poetry, uv, SwiftPM
+- Cox, [Minimal Version Selection](https://research.swtch.com/vgo-mvs) (2018) - Go modules' polynomial-time approach
+- Gamblin et al., [The Spack Package Manager](https://tgamblin.github.io/pubs/spack-sc15.pdf) (2015) - ASP-based resolution for HPC
+- Dolstra et al., [Nix: A Safe and Policy-Free System for Software Deployment](https://nixos.org/~eelco/pubs/nspfssd-lisa2004-final.pdf) (2004) - Purely functional package management
+- Cappos, [Stork: Secure Package Management for VM Environments](https://www.cs.arizona.edu/sites/default/files/TR08-04.pdf) (2008) - PhD thesis introducing backtracking dependency resolution
+
+For a comprehensive bibliography, see [Package Management Papers](https://nesbitt.io/2025/11/13/package-management-papers.html).
 
 ---
 
