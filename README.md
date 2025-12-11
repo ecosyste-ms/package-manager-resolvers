@@ -825,7 +825,7 @@ Spack is a package manager for HPC that uses Answer Set Programming (ASP) for de
 | Yarn Berry | Dedup + nesting | Highest | Yes | Yes (isolated) |
 | pnpm | Dedup + nesting | Highest | Yes | Yes (isolated) |
 | Bun | Dedup + nesting | Highest | Yes | Yes (nested) |
-| pip | Backtracking | Highest | No* | No |
+| pip | Backtracking | Highest | No\* | No |
 | Poetry | PubGrub | Highest | Yes | No |
 | uv | PubGrub | Highest | Yes | No |
 | Conda/Mamba | SAT (libsolv) | Highest | Yes | No |
@@ -852,7 +852,15 @@ Spack is a package manager for HPC that uses Answer Set Programming (ASP) for de
 | Alpine APK | Unknown | Latest | No | No |
 | Spack | ASP (Clingo) | Optimized | Yes | Yes |
 
-*pip has no built-in lockfile; `pip freeze > requirements.txt` with pinned versions serves a similar purpose
+> [!tip]
+> \* pip cannot *install* from standard lock files; `pip freeze > requirements.txt` with pinned versions serves
+> a similar purpose; additionally, `constraint.txt` files can be used to restrict dependency resolution;
+> pip v25.3 is able to produce the tool-agnostic ecosystem standard [`pylock.toml`] lock file accepted through
+> [PEP 751] at the beginning of 2025 — but cannot use it during installation (as of Dec 2025). Other installers
+> in the Python ecosystem are able to install from [`pylock.toml`] files.
+>
+> [`pylock.toml`]: https://packaging.python.org/en/latest/specifications/pylock-toml/
+> [PEP 751]: https://peps.python.org/pep-0751/
 
 ---
 
